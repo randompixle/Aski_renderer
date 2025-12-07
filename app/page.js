@@ -4,6 +4,29 @@ import { useEffect, useMemo, useState } from "react";
 
 const SHADES = "█▓▒░";
 
+const MODELS = [
+  {
+    key: "cube",
+    label: "Cube",
+    sdf: (p) => boxSDF(p, 1.15),
+  },
+  {
+    key: "wideCube",
+    label: "Wide Cube",
+    sdf: (p) => boxSDF(p, 1.5, [1.5, 1.0, 1.5]),
+  },
+  {
+    key: "sphere",
+    label: "Sphere",
+    sdf: (p) => sphereSDF(p, 1.15),
+  },
+  {
+    key: "torus",
+    label: "Torus",
+    sdf: (p) => torusSDF(p, 1.0, 0.45),
+  },
+];
+
 function rotate(v, ax, ay) {
   let [x, y, z] = v;
 
@@ -28,7 +51,16 @@ function cubeSDF([x, y, z]) {
   return Math.sqrt(dx*dx + dy*dy + dz*dz);
 }
 
-function getNormal(p) {
+function sphereSDF([x, y, z], r = 1) {
+  return Math.hypot(x, y, z) - r;
+}
+
+function torusSDF([x, y, z], R = 1, r = 0.3) {
+  const qx = Math.hypot(x, z) - R;
+  return Math.hypot(qx, y) - r;
+}
+
+function getNormal(p, sdf) {
   const e = 0.002;
   const dx = cubeSDF([p[0] + e, p[1], p[2]]) - cubeSDF([p[0] - e, p[1], p[2]]);
   const dy = cubeSDF([p[0], p[1] + e, p[2]]) - cubeSDF([p[0], p[1] - e, p[2]]);
@@ -54,6 +86,9 @@ export default function Page() {
   }, []);
 
   const ascii = useMemo(() => {
+    const model = MODELS.find(m => m.key === modelKey) ?? MODELS[0];
+    const sdf = model.sdf;
+
     const result = [];
 
     const cam = [0,0,-3.5];
@@ -74,7 +109,7 @@ export default function Page() {
         const screenY = ((y+0.5)/H)*2 - 1;
 
         const aspect = W/H;
-        const asciiAspect = 0.55;
+        const asciiAspect = 0.5;
 
         // Centered projection with corrected ASCII pixel aspect ratio
         let dir = [
