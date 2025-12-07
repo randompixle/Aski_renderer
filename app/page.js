@@ -8,7 +8,7 @@ const MODELS = [
   {
     key: "cube",
     label: "Cube",
-    sdf: (p) => boxSDF(p, 1.3),
+    sdf: (p) => boxSDF(p, 1.15),
   },
   {
     key: "wideCube",
@@ -43,11 +43,11 @@ function rotateInverse(v, ax, ay) {
   return rotate(v, -ax, -ay);
 }
 
-function boxSDF([x, y, z], base = 1, scale = [1, 1, 1]) {
-  const s = [base * scale[0], base * scale[1], base * scale[2]];
-  const dx = Math.max(Math.abs(x) - s[0], 0);
-  const dy = Math.max(Math.abs(y) - s[1], 0);
-  const dz = Math.max(Math.abs(z) - s[2], 0);
+function cubeSDF([x, y, z]) {
+  const s = 1;
+  const dx = Math.max(Math.abs(x) - s, 0);
+  const dy = Math.max(Math.abs(y) - s, 0);
+  const dz = Math.max(Math.abs(z) - s, 0);
   return Math.sqrt(dx*dx + dy*dy + dz*dz);
 }
 
@@ -62,9 +62,9 @@ function torusSDF([x, y, z], R = 1, r = 0.3) {
 
 function getNormal(p, sdf) {
   const e = 0.002;
-  const dx = sdf([p[0] + e, p[1], p[2]]) - sdf([p[0] - e, p[1], p[2]]);
-  const dy = sdf([p[0], p[1] + e, p[2]]) - sdf([p[0], p[1] - e, p[2]]);
-  const dz = sdf([p[0], p[1], p[2] + e]) - sdf([p[0], p[1], p[2] - e]);
+  const dx = cubeSDF([p[0] + e, p[1], p[2]]) - cubeSDF([p[0] - e, p[1], p[2]]);
+  const dy = cubeSDF([p[0], p[1] + e, p[2]]) - cubeSDF([p[0], p[1] - e, p[2]]);
+  const dz = cubeSDF([p[0], p[1], p[2] + e]) - cubeSDF([p[0], p[1], p[2] - e]);
   const len = Math.hypot(dx, dy, dz) || 1;
   return [dx / len, dy / len, dz / len];
 }
@@ -72,11 +72,6 @@ function getNormal(p, sdf) {
 export default function Page() {
   const [t, setT] = useState(0);
   const [modelKey, setModelKey] = useState(MODELS[0].key);
-
-  const model = useMemo(
-    () => MODELS.find((m) => m.key === modelKey) ?? MODELS[0],
-    [modelKey]
-  );
 
   const W = 110;
   const H = 55;
@@ -92,6 +87,7 @@ export default function Page() {
   }, []);
 
   const ascii = useMemo(() => {
+    const model = MODELS.find(m => m.key === modelKey) ?? MODELS[0];
     const sdf = model.sdf;
 
     const result = [];
@@ -114,7 +110,7 @@ export default function Page() {
         const screenY = ((y+0.5)/H)*2 - 1;
 
         const aspect = W/H;
-        const asciiAspect = 0.35;
+        const asciiAspect = 0.5;
 
         // Centered projection with corrected ASCII pixel aspect ratio
         let dir = [
@@ -138,10 +134,10 @@ export default function Page() {
 
           const pObj = rotateInverse(p, ax, ay);
 
-          const d = sdf(pObj);
+          const d = cubeSDF(pObj);
 
           if (d < 0.01) {
-            const nObj = getNormal(pObj, sdf);
+            const nObj = getNormal(pObj);
             const nWorld = rotate(nObj, ax, ay);
             const diffuse = Math.max(0, nWorld[0]*light[0] + nWorld[1]*light[1] + nWorld[2]*light[2]);
             const idx = Math.floor(diffuse * (SHADES.length-1));
@@ -160,7 +156,7 @@ export default function Page() {
     }
 
     return result.join("\n");
-  }, [t, model]);
+  }, [t]);
 
   return (
     <div style={{
@@ -173,41 +169,14 @@ export default function Page() {
       fontFamily: "monospace"
     }}>
     <div>
-      <div style={{
-        display: "flex",
-        gap: "0.5rem",
-        marginBottom: "0.75rem",
-        flexWrap: "wrap",
-        justifyContent: "center",
-        fontSize: "12px"
-      }}>
-        {MODELS.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => setModelKey(key)}
-            style={{
-              padding: "0.35rem 0.65rem",
-              background: key === modelKey ? "#0e3b5f" : "#05243d",
-              color: "#dff9ff",
-              border: "1px solid #0e3b5f",
-              borderRadius: "8px",
-              cursor: "pointer",
-              boxShadow: key === modelKey ? "0 0 10px rgba(120,200,255,0.5)" : "none",
-              transition: "background 0.2s, box-shadow 0.2s"
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <pre style={{
-        fontSize: "10px",
-        lineHeight: "10px",
-        padding: "1.5rem",
-        borderRadius: "12px",
-        background: "#02040a",
-        textShadow:"0 0 6px rgba(120,200,255,0.7)"
-      }}>{ascii}</pre>
+    <pre style={{
+      fontSize: "10px",
+      lineHeight: "10px",
+      padding: "1.5rem",
+      borderRadius: "12px",
+      background: "#02040a",
+      textShadow:"0 0 6px rgba(120,200,255,0.7)"
+    }}>{ascii}</pre>
     </div>
     </div>
   );
