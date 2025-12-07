@@ -6,7 +6,55 @@ const SHADES = " ░▒▓█";
 const WIDTH = 96;
 const HEIGHT = 34;
 const Z_OFFSET = 6;
-const LIGHT_DIR = normalize([0.3, 0.7, -0.6]);
+const LIGHT_DIR = normalize([0.35, 0.7, -0.55]);
+
+const TEXTURE_COLORS = {
+  cube: (p, n) => {
+    const axis = [Math.abs(n[0]), Math.abs(n[1]), Math.abs(n[2])];
+    const maxAxis = axis.indexOf(Math.max(...axis));
+    if (maxAxis === 0) return n[0] > 0 ? "#ff7b7b" : "#c56cff";
+    if (maxAxis === 1) return n[1] > 0 ? "#6bffc2" : "#58c9ff";
+    return n[2] > 0 ? "#ffd56c" : "#9be6ff";
+  },
+  wideCube: (p, n) => {
+    const blend = Math.min(1, Math.max(0, (p[0] + 1.5) / 3));
+    return mixColors("#d9ff6c", "#ff6cf3", blend);
+  },
+  sphere: (p) => {
+    const bands = 0.5 + 0.5 * Math.sin(p[1] * 3.2 + p[0] * 1.4);
+    return mixColors("#65d8ff", "#6c9bff", bands);
+  },
+  torus: (p) => {
+    const angle = Math.atan2(p[2], p[0]);
+    const stripe = 0.5 + 0.5 * Math.sin(angle * 4 + p[1] * 2);
+    return mixColors("#ffd36c", "#ff6c8f", stripe);
+  },
+};
+
+function hexToRgb(hex) {
+  const value = hex.startsWith("#") ? hex.slice(1) : hex;
+  const int = parseInt(value, 16);
+  return [(int >> 16) & 255, (int >> 8) & 255, int & 255];
+}
+
+function rgbToHex([r, g, b]) {
+  const toHex = (v) => v.toString(16).padStart(2, "0");
+  return `#${toHex(Math.round(r))}${toHex(Math.round(g))}${toHex(Math.round(b))}`;
+}
+
+function rgbToCss([r, g, b]) {
+  return `rgb(${r.toFixed(0)}, ${g.toFixed(0)}, ${b.toFixed(0)})`;
+}
+
+function mixColors(a, b, t) {
+  const clampT = Math.min(1, Math.max(0, t));
+  const [ar, ag, ab] = hexToRgb(a);
+  const [br, bg, bb] = hexToRgb(b);
+  const r = ar + (br - ar) * clampT;
+  const g = ag + (bg - ag) * clampT;
+  const bVal = ab + (bb - ab) * clampT;
+  return rgbToHex([r, g, bVal]);
+}
 
 function normalize(v) {
   const len = Math.hypot(...v) || 1;
