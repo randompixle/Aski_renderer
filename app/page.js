@@ -3,6 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 
 const SHADES = "█▓▒░";
+const WIDTH = 96;
+const HEIGHT = 32;
+const Z_OFFSET = 6;
+const LIGHT_DIR = normalize([0.3, 0.7, -0.6]);
+
+function normalize(v) {
+  const len = Math.hypot(...v) || 1;
+  return v.map((n) => n / len);
+}
 
 const MODELS = [
   {
@@ -49,12 +58,8 @@ function rotateInverse(v, ax, ay) {
   return rotate(v, -ax, -ay);
 }
 
-function cubeSDF([x, y, z]) {
-  const s = 1;
-  const dx = Math.max(Math.abs(x) - s, 0);
-  const dy = Math.max(Math.abs(y) - s, 0);
-  const dz = Math.max(Math.abs(z) - s, 0);
-  return Math.sqrt(dx*dx + dy*dy + dz*dz);
+function rotatePoint(p, ax, ay) {
+  return rotateY(rotateX(p, ax), ay);
 }
 
 function sphereSDF([x, y, z], r = 1) {
@@ -167,8 +172,8 @@ function makeCube(size = 1.5, step = 0.18) {
     const rotatedP = rotatePoint(p, ax, ay);
     const rotatedN = rotateNormal(n, ax, ay);
 
-        let dist = 0;
-        let pixel = " ";
+    const xProj = rotatedP[0] * invZ;
+    const yProj = rotatedP[1] * invZ;
 
     const screenX = Math.floor(WIDTH / 2 + xProj * WIDTH * 0.6);
     const screenY = Math.floor(HEIGHT / 2 - yProj * HEIGHT * 0.6);
