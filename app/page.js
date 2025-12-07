@@ -13,6 +13,35 @@ function normalize(v) {
   return v.map((n) => n / len);
 }
 
+const MODELS = [
+  {
+    key: "cube",
+    label: "Cube",
+    sdf: (p) => boxSDF(p, 1.15),
+  },
+  {
+    key: "wideCube",
+    label: "Wide Cube",
+    sdf: (p) => boxSDF(p, 1.5, [1.5, 1.0, 1.5]),
+  },
+  {
+    key: "sphere",
+    label: "Sphere",
+    sdf: (p) => sphereSDF(p, 1.15),
+  },
+  {
+    key: "torus",
+    label: "Torus",
+    sdf: (p) => torusSDF(p, 1.0, 0.45),
+  },
+];
+
+function rotate(v, ax, ay) {
+  let [x, y, z] = v;
+
+  let x1 = x * Math.cos(ay) - z * Math.sin(ay);
+  let z1 = x * Math.sin(ay) + z * Math.cos(ay);
+
 function rotateX([x, y, z], angle) {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
@@ -25,33 +54,61 @@ function rotateY([x, y, z], angle) {
   return [x * c + z * s, y, -x * s + z * c];
 }
 
+function rotateInverse(v, ax, ay) {
+  return rotate(v, -ax, -ay);
+}
+
 function rotatePoint(p, ax, ay) {
   return rotateY(rotateX(p, ax), ay);
 }
 
-function rotateNormal(n, ax, ay) {
-  // For pure rotations the same transform applies to normals.
-  return rotatePoint(n, ax, ay);
+function sphereSDF([x, y, z], r = 1) {
+  return Math.hypot(x, y, z) - r;
 }
 
-function makeTorus(R = 1.5, r = 0.6, stepMajor = 0.09, stepMinor = 0.045) {
-  const points = [];
-  for (let j = 0; j < Math.PI * 2; j += stepMajor) {
-    const cosJ = Math.cos(j);
-    const sinJ = Math.sin(j);
-    for (let i = 0; i < Math.PI * 2; i += stepMinor) {
-      const cosI = Math.cos(i);
-      const sinI = Math.sin(i);
+function torusSDF([x, y, z], R = 1, r = 0.3) {
+  const qx = Math.hypot(x, z) - R;
+  return Math.hypot(qx, y) - r;
+}
 
-      const cx = (R + r * cosI) * cosJ;
-      const cy = (R + r * cosI) * sinJ;
-      const cz = r * sinI;
+function getNormal(p, sdf) {
+  const e = 0.002;
+  const dx = cubeSDF([p[0] + e, p[1], p[2]]) - cubeSDF([p[0] - e, p[1], p[2]]);
+  const dy = cubeSDF([p[0], p[1] + e, p[2]]) - cubeSDF([p[0], p[1] - e, p[2]]);
+  const dz = cubeSDF([p[0], p[1], p[2] + e]) - cubeSDF([p[0], p[1], p[2] - e]);
+  const len = Math.hypot(dx, dy, dz) || 1;
+  return [dx / len, dy / len, dz / len];
+}
+
+export default function Page() {
+  const [t, setT] = useState(0);
+  const [modelKey, setModelKey] = useState(MODELS[0].key);
 
       const nx = cosI * cosJ;
       const ny = cosI * sinJ;
       const nz = sinI;
 
-      points.push({ p: [cx, cy, cz], n: normalize([nx, ny, nz]) });
+  useEffect(() => {
+    let id;
+    const loop = ts => {
+      setT(ts/1000);
+      id = requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const ascii = useMemo(() => {
+    const model = MODELS.find(m => m.key === modelKey) ?? MODELS[0];
+    const sdf = model.sdf;
+
+    const result = [];
+
+    const cam = [0,0,-3.5];
+    const light = [0.6,1.0,-0.4];
+    {
+      const L = Math.hypot(...light);
+      light[0]/=L; light[1]/=L; light[2]/=L;
     }
   }
   return points;
@@ -101,22 +158,19 @@ function makeCube(size = 1.5, step = 0.18) {
   return points;
 }
 
-const MODELS = [
-  { key: "torus", label: "Donut", points: makeTorus() },
-  { key: "cube", label: "Cube", points: makeCube(1.4) },
-  { key: "sphere", label: "Sphere", points: makeSphere() },
-];
+        const aspect = W/H;
+        const asciiAspect = 0.5;
 
-function renderFrame(model, ax, ay) {
-  const buffer = Array(WIDTH * HEIGHT).fill(" ");
-  const depth = Array(WIDTH * HEIGHT).fill(0);
+        // Centered projection with corrected ASCII pixel aspect ratio
+        let dir = [
+          screenX * aspect,
+          -screenY * asciiAspect,
+          1
+        ];
 
   for (const { p, n } of model.points) {
     const rotatedP = rotatePoint(p, ax, ay);
     const rotatedN = rotateNormal(n, ax, ay);
-
-    const z = rotatedP[2] + Z_OFFSET;
-    const invZ = 1 / z;
 
     const xProj = rotatedP[0] * invZ;
     const yProj = rotatedP[1] * invZ;
@@ -124,12 +178,18 @@ function renderFrame(model, ax, ay) {
     const screenX = Math.floor(WIDTH / 2 + xProj * WIDTH * 0.6);
     const screenY = Math.floor(HEIGHT / 2 - yProj * HEIGHT * 0.6);
 
-    if (screenX < 0 || screenX >= WIDTH || screenY < 0 || screenY >= HEIGHT) {
-      continue;
-    }
+          const pObj = rotateInverse(p, ax, ay);
 
-    const idx = screenX + WIDTH * screenY;
-    if (invZ <= depth[idx]) continue;
+          const d = cubeSDF(pObj);
+
+          if (d < 0.01) {
+            const nObj = getNormal(pObj);
+            const nWorld = rotate(nObj, ax, ay);
+            const diffuse = Math.max(0, nWorld[0]*light[0] + nWorld[1]*light[1] + nWorld[2]*light[2]);
+            const idx = Math.floor(diffuse * (SHADES.length-1));
+            pixel = SHADES[idx];
+            break;
+          }
 
     depth[idx] = invZ;
 
@@ -145,80 +205,29 @@ function renderFrame(model, ax, ay) {
   return out;
 }
 
-export default function Page() {
-  const [modelKey, setModelKey] = useState(MODELS[0].key);
-  const model = useMemo(() => MODELS.find((m) => m.key === modelKey) ?? MODELS[0], [modelKey]);
-  const [frame, setFrame] = useState(() => renderFrame(model, 0, 0));
-
-  useEffect(() => {
-    let raf;
-    let ax = 0;
-    let ay = 0;
-    let prev = performance.now();
-
-    const tick = (now) => {
-      const dt = (now - prev) / 1000;
-      prev = now;
-      ax += dt * 0.8;
-      ay += dt * 1.2;
-      setFrame(renderFrame(model, ax, ay));
-      raf = requestAnimationFrame(tick);
-    };
-
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [model]);
+    return result.join("\n");
+  }, [t]);
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#0b111a",
-        color: "#e8f7ff",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-      }}
-    >
-      <div style={{ textAlign: "center" }}>
-        <div style={{ marginBottom: "0.75rem", display: "flex", gap: "0.5rem", justifyContent: "center", flexWrap: "wrap" }}>
-          {MODELS.map(({ key, label }) => (
-            <button
-              key={key}
-              onClick={() => setModelKey(key)}
-              style={{
-                padding: "0.35rem 0.65rem",
-                background: key === modelKey ? "#14324f" : "#0c2338",
-                color: "#eaf7ff",
-                border: "1px solid #194167",
-                borderRadius: "8px",
-                cursor: "pointer",
-                boxShadow: key === modelKey ? "0 0 12px rgba(120,200,255,0.6)" : "none",
-                transition: "background 0.15s, box-shadow 0.15s",
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <pre
-          style={{
-            fontSize: "10px",
-            lineHeight: "10px",
-            background: "#050913",
-            padding: "1.25rem",
-            borderRadius: "12px",
-            textShadow: "0 0 8px rgba(120,200,255,0.6)",
-            color: "#e8f7ff",
-            border: "1px solid #0f1c2c",
-            boxShadow: "0 0 30px rgba(20,30,50,0.55) inset, 0 0 12px rgba(120,200,255,0.35)",
-            whiteSpace: "pre",
-          }}
-        >
-          {frame}
-        </pre>
-      </div>
+    <div style={{
+      minHeight: "100vh",
+      background: "#020408",
+      display: "flex",
+      justifyContent: "center",
+      alignItems: "center",
+      color: "#cfffff",
+      fontFamily: "monospace"
+    }}>
+    <div>
+    <pre style={{
+      fontSize: "10px",
+      lineHeight: "10px",
+      padding: "1.5rem",
+      borderRadius: "12px",
+      background: "#02040a",
+      textShadow:"0 0 6px rgba(120,200,255,0.7)"
+    }}>{ascii}</pre>
+    </div>
     </div>
   );
 }
