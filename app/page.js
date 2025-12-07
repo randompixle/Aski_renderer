@@ -71,6 +71,7 @@ function getNormal(p, sdf) {
 
 export default function Page() {
   const [t, setT] = useState(0);
+  const [modelKey, setModelKey] = useState(MODELS[0].key);
 
   const W = 110;
   const H = 55;
