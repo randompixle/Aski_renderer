@@ -1,6 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  DEFAULT_HEIGHT,
+  DEFAULT_WIDTH,
+  MODELS,
+  SHADES,
+  renderAscii,
+} from "../lib/asciiRenderer";
 
 const SHADES = " ░▒▓█";
 const WIDTH = 96;

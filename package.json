@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "render": "node scripts/render-cli.js"
   },
   "dependencies": {
     "next": "14.2.3",
