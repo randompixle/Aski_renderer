@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-const SHADES = "█▓▒░";
+const SHADES = " ░▒▓█";
 const WIDTH = 96;
 const HEIGHT = 32;
 const Z_OFFSET = 6;
@@ -17,30 +17,149 @@ const MODELS = [
   {
     key: "cube",
     label: "Cube",
-    sdf: (p) => boxSDF(p, 1.15),
+    points: makeCube(),
   },
   {
     key: "wideCube",
     label: "Wide Cube",
-    sdf: (p) => boxSDF(p, 1.5, [1.5, 1.0, 1.5]),
+    points: makeCube(1.5, 0.18, [1.5, 1.0, 1.5]),
   },
   {
     key: "sphere",
     label: "Sphere",
-    sdf: (p) => sphereSDF(p, 1.15),
+    points: makeSphere(),
   },
   {
     key: "torus",
     label: "Torus",
-    sdf: (p) => torusSDF(p, 1.0, 0.45),
+    points: makeTorus(),
   },
 ];
 
-function rotate(v, ax, ay) {
-  let [x, y, z] = v;
+export default function Page() {
+  const [t, setT] = useState(0);
+  const [modelKey, setModelKey] = useState(MODELS[0].key);
 
-  let x1 = x * Math.cos(ay) - z * Math.sin(ay);
-  let z1 = x * Math.sin(ay) + z * Math.cos(ay);
+  useEffect(() => {
+    let id;
+    const loop = (ts) => {
+      setT(ts / 1000);
+      id = requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const ascii = useMemo(() => {
+    const model = MODELS.find((m) => m.key === modelKey) ?? MODELS[0];
+    const buffer = Array(WIDTH * HEIGHT).fill(" ");
+    const depth = Array(WIDTH * HEIGHT).fill(-Infinity);
+
+    const ax = t * 0.7;
+    const ay = t * 0.9;
+
+    for (const { p, n } of model.points) {
+      const rotatedP = rotatePoint(p, ax, ay);
+      const rotatedN = rotateNormal(n, ax, ay);
+
+      const z = rotatedP[2] + Z_OFFSET;
+      if (z <= 0.1) continue;
+      const invZ = 1 / z;
+
+      const xProj = rotatedP[0] * invZ;
+      const yProj = rotatedP[1] * invZ;
+
+      const screenX = Math.floor(WIDTH / 2 + xProj * WIDTH * 0.6);
+      const screenY = Math.floor(HEIGHT / 2 - yProj * HEIGHT * 0.6);
+
+      if (screenX < 0 || screenX >= WIDTH || screenY < 0 || screenY >= HEIGHT) {
+        continue;
+      }
+
+      const idx = screenY * WIDTH + screenX;
+      if (invZ <= depth[idx]) continue;
+
+      depth[idx] = invZ;
+
+      const brightness = Math.max(
+        0,
+        rotatedN[0] * LIGHT_DIR[0] +
+          rotatedN[1] * LIGHT_DIR[1] +
+          rotatedN[2] * LIGHT_DIR[2]
+      );
+      const shadeIndex = Math.min(
+        SHADES.length - 1,
+        Math.floor(brightness * (SHADES.length - 1))
+      );
+      buffer[idx] = SHADES[shadeIndex];
+    }
+
+    const lines = [];
+    for (let y = 0; y < HEIGHT; y++) {
+      lines.push(buffer.slice(y * WIDTH, (y + 1) * WIDTH).join(""));
+    }
+
+    return lines.join("\n");
+  }, [modelKey, t]);
+
+  return (
+    <main
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "1rem",
+        background: "#0b1021",
+        color: "#e0e0e0",
+        fontFamily: "monospace",
+      }}
+    >
+      <h1 style={{ fontSize: "1.5rem", margin: 0 }}>ASCII Renderer</h1>
+      <label style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+        <span>Model:</span>
+        <select
+          value={modelKey}
+          onChange={(e) => setModelKey(e.target.value)}
+          style={{
+            padding: "0.25rem 0.5rem",
+            background: "#11162d",
+            color: "#e0e0e0",
+            border: "1px solid #243154",
+          }}
+        >
+          {MODELS.map((model) => (
+            <option key={model.key} value={model.key}>
+              {model.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <pre
+        style={{
+          margin: 0,
+          padding: "1rem",
+          lineHeight: 1,
+          background: "#0f1430",
+          border: "1px solid #1d2950",
+          boxShadow: "0 10px 30px rgba(0, 0, 0, 0.4)",
+        }}
+        aria-label="ASCII rendering"
+      >
+        {ascii}
+      </pre>
+    </main>
+  );
+}
+
+function rotatePoint(p, ax, ay) {
+  return rotateY(rotateX(p, ax), ay);
+}
+
+function rotateNormal(n, ax, ay) {
+  return normalize(rotatePoint(n, ax, ay));
+}
 
 function rotateX([x, y, z], angle) {
   const c = Math.cos(angle);
@@ -52,66 +171,6 @@ function rotateY([x, y, z], angle) {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
   return [x * c + z * s, y, -x * s + z * c];
-}
-
-function rotateInverse(v, ax, ay) {
-  return rotate(v, -ax, -ay);
-}
-
-function rotatePoint(p, ax, ay) {
-  return rotateY(rotateX(p, ax), ay);
-}
-
-function sphereSDF([x, y, z], r = 1) {
-  return Math.hypot(x, y, z) - r;
-}
-
-function torusSDF([x, y, z], R = 1, r = 0.3) {
-  const qx = Math.hypot(x, z) - R;
-  return Math.hypot(qx, y) - r;
-}
-
-function getNormal(p, sdf) {
-  const e = 0.002;
-  const dx = cubeSDF([p[0] + e, p[1], p[2]]) - cubeSDF([p[0] - e, p[1], p[2]]);
-  const dy = cubeSDF([p[0], p[1] + e, p[2]]) - cubeSDF([p[0], p[1] - e, p[2]]);
-  const dz = cubeSDF([p[0], p[1], p[2] + e]) - cubeSDF([p[0], p[1], p[2] - e]);
-  const len = Math.hypot(dx, dy, dz) || 1;
-  return [dx / len, dy / len, dz / len];
-}
-
-export default function Page() {
-  const [t, setT] = useState(0);
-  const [modelKey, setModelKey] = useState(MODELS[0].key);
-
-      const nx = cosI * cosJ;
-      const ny = cosI * sinJ;
-      const nz = sinI;
-
-  useEffect(() => {
-    let id;
-    const loop = ts => {
-      setT(ts/1000);
-      id = requestAnimationFrame(loop);
-    };
-    requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(id);
-  }, []);
-
-  const ascii = useMemo(() => {
-    const model = MODELS.find(m => m.key === modelKey) ?? MODELS[0];
-    const sdf = model.sdf;
-
-    const result = [];
-
-    const cam = [0,0,-3.5];
-    const light = [0.6,1.0,-0.4];
-    {
-      const L = Math.hypot(...light);
-      light[0]/=L; light[1]/=L; light[2]/=L;
-    }
-  }
-  return points;
 }
 
 function makeSphere(radius = 1.6, stepLat = 0.22, stepLon = 0.22) {
@@ -132,19 +191,19 @@ function makeSphere(radius = 1.6, stepLat = 0.22, stepLon = 0.22) {
   return points;
 }
 
-function makeCube(size = 1.5, step = 0.18) {
+function makeCube(size = 1.5, step = 0.18, scale = [1, 1, 1]) {
   const points = [];
   const half = size;
   const ranges = [];
   for (let t = -half; t <= half; t += step) ranges.push(t);
 
   const faces = [
-    { n: [1, 0, 0], p: (u, v) => [half, u, v] },
-    { n: [-1, 0, 0], p: (u, v) => [-half, u, v] },
-    { n: [0, 1, 0], p: (u, v) => [u, half, v] },
-    { n: [0, -1, 0], p: (u, v) => [u, -half, v] },
-    { n: [0, 0, 1], p: (u, v) => [u, v, half] },
-    { n: [0, 0, -1], p: (u, v) => [u, v, -half] },
+    { n: [1, 0, 0], p: (u, v) => [half * scale[0], u * scale[1], v * scale[2]] },
+    { n: [-1, 0, 0], p: (u, v) => [-half * scale[0], u * scale[1], v * scale[2]] },
+    { n: [0, 1, 0], p: (u, v) => [u * scale[0], half * scale[1], v * scale[2]] },
+    { n: [0, -1, 0], p: (u, v) => [u * scale[0], -half * scale[1], v * scale[2]] },
+    { n: [0, 0, 1], p: (u, v) => [u * scale[0], v * scale[1], half * scale[2]] },
+    { n: [0, 0, -1], p: (u, v) => [u * scale[0], v * scale[1], -half * scale[2]] },
   ];
 
   for (const { n, p } of faces) {
@@ -158,76 +217,22 @@ function makeCube(size = 1.5, step = 0.18) {
   return points;
 }
 
-        const aspect = W/H;
-        const asciiAspect = 0.5;
+function makeTorus(R = 1.3, r = 0.4, stepMajor = 0.25, stepMinor = 0.25) {
+  const points = [];
+  for (let a = 0; a < Math.PI * 2; a += stepMajor) {
+    const cosA = Math.cos(a);
+    const sinA = Math.sin(a);
+    for (let b = 0; b < Math.PI * 2; b += stepMinor) {
+      const cosB = Math.cos(b);
+      const sinB = Math.sin(b);
 
-        // Centered projection with corrected ASCII pixel aspect ratio
-        let dir = [
-          screenX * aspect,
-          -screenY * asciiAspect,
-          1
-        ];
+      const x = (R + r * cosB) * cosA;
+      const y = r * sinB;
+      const z = (R + r * cosB) * sinA;
 
-  for (const { p, n } of model.points) {
-    const rotatedP = rotatePoint(p, ax, ay);
-    const rotatedN = rotateNormal(n, ax, ay);
-
-    const xProj = rotatedP[0] * invZ;
-    const yProj = rotatedP[1] * invZ;
-
-    const screenX = Math.floor(WIDTH / 2 + xProj * WIDTH * 0.6);
-    const screenY = Math.floor(HEIGHT / 2 - yProj * HEIGHT * 0.6);
-
-          const pObj = rotateInverse(p, ax, ay);
-
-          const d = cubeSDF(pObj);
-
-          if (d < 0.01) {
-            const nObj = getNormal(pObj);
-            const nWorld = rotate(nObj, ax, ay);
-            const diffuse = Math.max(0, nWorld[0]*light[0] + nWorld[1]*light[1] + nWorld[2]*light[2]);
-            const idx = Math.floor(diffuse * (SHADES.length-1));
-            pixel = SHADES[idx];
-            break;
-          }
-
-    depth[idx] = invZ;
-
-    const brightness = Math.max(0, rotatedN[0] * LIGHT_DIR[0] + rotatedN[1] * LIGHT_DIR[1] + rotatedN[2] * LIGHT_DIR[2]);
-    const shadeIndex = Math.floor(brightness * (SHADES.length - 1));
-    buffer[idx] = SHADES[shadeIndex];
+      const n = normalize([cosA * cosB, sinB, sinA * cosB]);
+      points.push({ p: [x, y, z], n });
+    }
   }
-
-  let out = "";
-  for (let y = 0; y < HEIGHT; y++) {
-    out += buffer.slice(y * WIDTH, (y + 1) * WIDTH).join("") + "\n";
-  }
-  return out;
-}
-
-    return result.join("\n");
-  }, [t]);
-
-  return (
-    <div style={{
-      minHeight: "100vh",
-      background: "#020408",
-      display: "flex",
-      justifyContent: "center",
-      alignItems: "center",
-      color: "#cfffff",
-      fontFamily: "monospace"
-    }}>
-    <div>
-    <pre style={{
-      fontSize: "10px",
-      lineHeight: "10px",
-      padding: "1.5rem",
-      borderRadius: "12px",
-      background: "#02040a",
-      textShadow:"0 0 6px rgba(120,200,255,0.7)"
-    }}>{ascii}</pre>
-    </div>
-    </div>
-  );
+  return points;
 }
