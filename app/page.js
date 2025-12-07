@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-const SHADES = "█▓▒░ ";
+const SHADES = " ░▒▓█";
 const WIDTH = 96;
 const HEIGHT = 34;
 const Z_OFFSET = 6;
@@ -22,7 +22,7 @@ const MODELS = [
   {
     key: "wideCube",
     label: "Wide Cube",
-    points: makeCube(1.5, 0.12, [1.5, 1.0, 1.5]),
+    points: makeCube(1.5, 0.18, [1.5, 1.0, 1.5]),
   },
   {
     key: "sphere",
@@ -52,11 +52,11 @@ export default function Page() {
 
   const ascii = useMemo(() => {
     const model = MODELS.find((m) => m.key === modelKey) ?? MODELS[0];
-    const brightnessBuffer = new Float32Array(WIDTH * HEIGHT);
-    const depth = new Float32Array(WIDTH * HEIGHT).fill(-Infinity);
+    const buffer = Array(WIDTH * HEIGHT).fill(" ");
+    const depth = Array(WIDTH * HEIGHT).fill(-Infinity);
 
-  const ax = t * 0.7;
-  const ay = t * 0.9;
+    const ax = t * 0.7;
+    const ay = t * 0.9;
 
     for (const { p, n } of model.points) {
       const rotatedP = rotatePoint(p, ax, ay);
@@ -69,8 +69,8 @@ export default function Page() {
       const xProj = rotatedP[0] * invZ;
       const yProj = rotatedP[1] * invZ;
 
-      const screenX = Math.floor(WIDTH / 2 + xProj * WIDTH * 0.65);
-      const screenY = Math.floor(HEIGHT / 2 - yProj * HEIGHT * 0.8);
+      const screenX = Math.floor(WIDTH / 2 + xProj * WIDTH * 0.6);
+      const screenY = Math.floor(HEIGHT / 2 - yProj * HEIGHT * 0.6);
 
       if (screenX < 0 || screenX >= WIDTH || screenY < 0 || screenY >= HEIGHT) {
         continue;
@@ -81,54 +81,22 @@ export default function Page() {
 
       depth[idx] = invZ;
 
-      const brightness = Math.min(
-        1,
-        Math.max(
-          0.15,
-          rotatedN[0] * LIGHT_DIR[0] +
-            rotatedN[1] * LIGHT_DIR[1] +
-            rotatedN[2] * LIGHT_DIR[2]
-        )
+      const brightness = Math.max(
+        0,
+        rotatedN[0] * LIGHT_DIR[0] +
+          rotatedN[1] * LIGHT_DIR[1] +
+          rotatedN[2] * LIGHT_DIR[2]
       );
-      brightnessBuffer[idx] = Math.max(brightnessBuffer[idx], brightness);
-    }
-
-    const smoothed = new Float32Array(WIDTH * HEIGHT);
-    for (let y = 0; y < HEIGHT; y++) {
-      for (let x = 0; x < WIDTH; x++) {
-        let total = brightnessBuffer[y * WIDTH + x] * 2;
-        let count = brightnessBuffer[y * WIDTH + x] > 0 ? 2 : 0;
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            if (dx === 0 && dy === 0) continue;
-            const nx = x + dx;
-            const ny = y + dy;
-            if (nx < 0 || nx >= WIDTH || ny < 0 || ny >= HEIGHT) continue;
-            const nVal = brightnessBuffer[ny * WIDTH + nx];
-            if (nVal > 0) {
-              total += nVal;
-              count += 1;
-            }
-          }
-        }
-        if (count > 0) {
-          smoothed[y * WIDTH + x] = total / count;
-        }
-      }
+      const shadeIndex = Math.min(
+        SHADES.length - 1,
+        Math.floor(brightness * (SHADES.length - 1))
+      );
+      buffer[idx] = SHADES[shadeIndex];
     }
 
     const lines = [];
     for (let y = 0; y < HEIGHT; y++) {
-      let line = "";
-      for (let x = 0; x < WIDTH; x++) {
-        const b = smoothed[y * WIDTH + x];
-        const shadeIndex = Math.min(
-          SHADES.length - 1,
-          Math.floor((1 - b) * (SHADES.length - 1))
-        );
-        line += SHADES[shadeIndex];
-      }
-      lines.push(line);
+      lines.push(buffer.slice(y * WIDTH, (y + 1) * WIDTH).join(""));
     }
 
     return lines.join("\n");
@@ -223,7 +191,7 @@ function makeSphere(radius = 1.6, stepLat = 0.15, stepLon = 0.15) {
   return points;
 }
 
-function makeCube(size = 1.5, step = 0.12, scale = [1, 1, 1]) {
+function makeCube(size = 1.5, step = 0.18, scale = [1, 1, 1]) {
   const points = [];
   const half = size;
   const ranges = [];
@@ -249,7 +217,7 @@ function makeCube(size = 1.5, step = 0.12, scale = [1, 1, 1]) {
   return points;
 }
 
-function makeTorus(R = 1.3, r = 0.4, stepMajor = 0.18, stepMinor = 0.18) {
+function makeTorus(R = 1.3, r = 0.4, stepMajor = 0.25, stepMinor = 0.25) {
   const points = [];
   for (let a = 0; a < Math.PI * 2; a += stepMajor) {
     const cosA = Math.cos(a);
