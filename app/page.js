@@ -16,6 +16,10 @@ function rotate(v, ax, ay) {
   return [x1, y1, z2];
 }
 
+function rotateInverse(v, ax, ay) {
+  return rotate(v, -ax, -ay);
+}
+
 function cubeSDF([x, y, z]) {
   const s = 1;
   const dx = Math.max(Math.abs(x) - s, 0);
@@ -26,19 +30,15 @@ function cubeSDF([x, y, z]) {
 
 function getNormal(p) {
   const e = 0.002;
-  const dx = cubeSDF([p[0]+e,p[1],p[2]]) - cubeSDF([p[0]-e,p[1],p[2]]);
-  const dy = cubeSDF([p[0],p[1]+e,p[2]]) - cubeSDF([p[0],p[1]-e,p[2]]);
-  const dz = cubeSDF([p[0],p[1],p[2]+e]) - cubeSDF([p[0],p[1],p[2]-e]);
-  const len = Math.hypot(dx,dy,dz) || 1;
-  return [dx/len, dy/len, dz/len];
+  const dx = cubeSDF([p[0] + e, p[1], p[2]]) - cubeSDF([p[0] - e, p[1], p[2]]);
+  const dy = cubeSDF([p[0], p[1] + e, p[2]]) - cubeSDF([p[0], p[1] - e, p[2]]);
+  const dz = cubeSDF([p[0], p[1], p[2] + e]) - cubeSDF([p[0], p[1], p[2] - e]);
+  const len = Math.hypot(dx, dy, dz) || 1;
+  return [dx / len, dy / len, dz / len];
 }
 
 export default function Page() {
   const [t, setT] = useState(0);
-
-  // ✅ MANUAL CENTER CALIBRATION
-  const [xOffset, setXOffset] = useState(0);
-  const [yOffset, setYOffset] = useState(0);
 
   const W = 110;
   const H = 55;
@@ -76,17 +76,15 @@ export default function Page() {
         const aspect = W/H;
         const asciiAspect = 0.55;
 
-        // ✅ FINAL CENTER-LOCKED PROJECTION
+        // Centered projection with corrected ASCII pixel aspect ratio
         let dir = [
-          (screenX + xOffset) * aspect,
-                        -(screenY + yOffset) * asciiAspect,
-                        1
+          screenX * aspect,
+          -screenY * asciiAspect,
+          1
         ];
 
         const len = Math.hypot(...dir);
         dir = [dir[0]/len, dir[1]/len, dir[2]/len];
-
-        dir = rotate(dir, ax, ay);
 
         let dist = 0;
         let pixel = " ";
@@ -98,11 +96,14 @@ export default function Page() {
             cam[2] + dir[2]*dist,
           ];
 
-          const d = cubeSDF(p);
+          const pObj = rotateInverse(p, ax, ay);
+
+          const d = cubeSDF(pObj);
 
           if (d < 0.01) {
-            const n = getNormal(p);
-            const diffuse = Math.max(0, n[0]*light[0] + n[1]*light[1] + n[2]*light[2]);
+            const nObj = getNormal(pObj);
+            const nWorld = rotate(nObj, ax, ay);
+            const diffuse = Math.max(0, nWorld[0]*light[0] + nWorld[1]*light[1] + nWorld[2]*light[2]);
             const idx = Math.floor(diffuse * (SHADES.length-1));
             pixel = SHADES[idx];
             break;
@@ -119,7 +120,7 @@ export default function Page() {
     }
 
     return result.join("\n");
-  }, [t, xOffset, yOffset]);
+  }, [t]);
 
   return (
     <div style={{
@@ -132,32 +133,6 @@ export default function Page() {
       fontFamily: "monospace"
     }}>
     <div>
-    <div style={{marginBottom:"1rem"}}>
-    <label>
-    X Center Offset: {xOffset.toFixed(2)}
-    <input
-    type="range"
-    min={-1}
-    max={1}
-    step={0.01}
-    value={xOffset}
-    onChange={e=>setXOffset(parseFloat(e.target.value))}
-    />
-    </label>
-    <br/>
-    <label>
-    Y Center Offset: {yOffset.toFixed(2)}
-    <input
-    type="range"
-    min={-1}
-    max={1}
-    step={0.01}
-    value={yOffset}
-    onChange={e=>setYOffset(parseFloat(e.target.value))}
-    />
-    </label>
-    </div>
-
     <pre style={{
       fontSize: "10px",
       lineHeight: "10px",
