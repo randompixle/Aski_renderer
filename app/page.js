@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 const SHADES = " ░▒▓█";
 const WIDTH = 96;
-const HEIGHT = 32;
+const HEIGHT = 34;
 const Z_OFFSET = 6;
 const LIGHT_DIR = normalize([0.3, 0.7, -0.6]);
 
@@ -173,7 +173,7 @@ function rotateY([x, y, z], angle) {
   return [x * c + z * s, y, -x * s + z * c];
 }
 
-function makeSphere(radius = 1.6, stepLat = 0.22, stepLon = 0.22) {
+function makeSphere(radius = 1.6, stepLat = 0.15, stepLon = 0.15) {
   const points = [];
   for (let j = 0; j <= Math.PI; j += stepLat) {
     const sinJ = Math.sin(j);
