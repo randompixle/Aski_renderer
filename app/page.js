@@ -2,11 +2,59 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-const SHADES = "█▓▒░";
+const SHADES = "█▓▒░ ";
 const WIDTH = 96;
-const HEIGHT = 32;
+const HEIGHT = 34;
 const Z_OFFSET = 6;
-const LIGHT_DIR = normalize([0.3, 0.7, -0.6]);
+const LIGHT_DIR = normalize([0.35, 0.7, -0.55]);
+
+const TEXTURE_COLORS = {
+  cube: (p, n) => {
+    const axis = [Math.abs(n[0]), Math.abs(n[1]), Math.abs(n[2])];
+    const maxAxis = axis.indexOf(Math.max(...axis));
+    if (maxAxis === 0) return n[0] > 0 ? "#ff7b7b" : "#c56cff";
+    if (maxAxis === 1) return n[1] > 0 ? "#6bffc2" : "#58c9ff";
+    return n[2] > 0 ? "#ffd56c" : "#9be6ff";
+  },
+  wideCube: (p, n) => {
+    const blend = Math.min(1, Math.max(0, (p[0] + 1.5) / 3));
+    return mixColors("#d9ff6c", "#ff6cf3", blend);
+  },
+  sphere: (p) => {
+    const bands = 0.5 + 0.5 * Math.sin(p[1] * 3.2 + p[0] * 1.4);
+    return mixColors("#65d8ff", "#6c9bff", bands);
+  },
+  torus: (p) => {
+    const angle = Math.atan2(p[2], p[0]);
+    const stripe = 0.5 + 0.5 * Math.sin(angle * 4 + p[1] * 2);
+    return mixColors("#ffd36c", "#ff6c8f", stripe);
+  },
+};
+
+function hexToRgb(hex) {
+  const value = hex.startsWith("#") ? hex.slice(1) : hex;
+  const int = parseInt(value, 16);
+  return [(int >> 16) & 255, (int >> 8) & 255, int & 255];
+}
+
+function rgbToHex([r, g, b]) {
+  const toHex = (v) => v.toString(16).padStart(2, "0");
+  return `#${toHex(Math.round(r))}${toHex(Math.round(g))}${toHex(Math.round(b))}`;
+}
+
+function rgbToCss([r, g, b]) {
+  return `rgb(${r.toFixed(0)}, ${g.toFixed(0)}, ${b.toFixed(0)})`;
+}
+
+function mixColors(a, b, t) {
+  const clampT = Math.min(1, Math.max(0, t));
+  const [ar, ag, ab] = hexToRgb(a);
+  const [br, bg, bb] = hexToRgb(b);
+  const r = ar + (br - ar) * clampT;
+  const g = ag + (bg - ag) * clampT;
+  const bVal = ab + (bb - ab) * clampT;
+  return rgbToHex([r, g, bVal]);
+}
 
 function normalize(v) {
   const len = Math.hypot(...v) || 1;
@@ -17,30 +65,237 @@ const MODELS = [
   {
     key: "cube",
     label: "Cube",
-    sdf: (p) => boxSDF(p, 1.15),
+    points: makeCube(),
   },
   {
     key: "wideCube",
     label: "Wide Cube",
-    sdf: (p) => boxSDF(p, 1.5, [1.5, 1.0, 1.5]),
+    points: makeCube(1.5, 0.12, [1.5, 1.0, 1.5]),
   },
   {
     key: "sphere",
     label: "Sphere",
-    sdf: (p) => sphereSDF(p, 1.15),
+    points: makeSphere(),
   },
   {
     key: "torus",
     label: "Torus",
-    sdf: (p) => torusSDF(p, 1.0, 0.45),
+    points: makeTorus(),
   },
 ];
 
-function rotate(v, ax, ay) {
-  let [x, y, z] = v;
+export default function Page() {
+  const [t, setT] = useState(0);
+  const [modelKey, setModelKey] = useState(MODELS[0].key);
 
-  let x1 = x * Math.cos(ay) - z * Math.sin(ay);
-  let z1 = x * Math.sin(ay) + z * Math.cos(ay);
+  useEffect(() => {
+    let id;
+    const loop = (ts) => {
+      setT(ts / 1000);
+      id = requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const ascii = useMemo(() => {
+    const model = MODELS.find((m) => m.key === modelKey) ?? MODELS[0];
+    const brightnessBuffer = new Float32Array(WIDTH * HEIGHT);
+    const totalWeight = new Float32Array(WIDTH * HEIGHT);
+    const colorBuffer = new Array(WIDTH * HEIGHT).fill(null);
+    const depth = new Float32Array(WIDTH * HEIGHT).fill(-Infinity);
+
+    const ax = t * 0.7;
+    const ay = t * 0.9;
+
+    for (const { p, n } of model.points) {
+      const rotatedP = rotatePoint(p, ax, ay);
+      const rotatedN = rotateNormal(n, ax, ay);
+
+      const z = rotatedP[2] + Z_OFFSET;
+      if (z <= 0.1) continue;
+      const invZ = 1 / z;
+
+      const xProj = rotatedP[0] * invZ;
+      const yProj = rotatedP[1] * invZ;
+
+      const screenXF = WIDTH / 2 + xProj * WIDTH * 0.65;
+      const screenYF = HEIGHT / 2 - yProj * HEIGHT * 0.8;
+
+      if (screenXF < -1 || screenXF >= WIDTH + 1 || screenYF < -1 || screenYF >= HEIGHT + 1) {
+        continue;
+      }
+
+      const baseX = Math.floor(screenXF);
+      const baseY = Math.floor(screenYF);
+      const fx = screenXF - baseX;
+      const fy = screenYF - baseY;
+
+      const brightness = Math.min(
+        1,
+        Math.max(
+          0.18,
+          rotatedN[0] * LIGHT_DIR[0] +
+            rotatedN[1] * LIGHT_DIR[1] +
+            rotatedN[2] * LIGHT_DIR[2]
+        )
+      );
+      const colorHex = (TEXTURE_COLORS[model.key] ?? (() => "#e0e0e0"))(rotatedP, rotatedN);
+      const [cr, cg, cb] = hexToRgb(colorHex);
+
+      for (let iy = 0; iy <= 1; iy++) {
+        for (let ix = 0; ix <= 1; ix++) {
+          const px = baseX + ix;
+          const py = baseY + iy;
+          if (px < 0 || px >= WIDTH || py < 0 || py >= HEIGHT) continue;
+
+          const weight = (ix === 0 ? 1 - fx : fx) * (iy === 0 ? 1 - fy : fy);
+          if (weight <= 0) continue;
+
+          const idx = py * WIDTH + px;
+          const currentDepth = depth[idx];
+          if (invZ > currentDepth + 0.02) {
+            depth[idx] = invZ;
+            brightnessBuffer[idx] = 0;
+            totalWeight[idx] = 0;
+            colorBuffer[idx] = [0, 0, 0];
+          }
+
+          if (Math.abs(invZ - depth[idx]) <= 0.02) {
+            brightnessBuffer[idx] += brightness * weight;
+            totalWeight[idx] += weight;
+            if (!colorBuffer[idx]) colorBuffer[idx] = [0, 0, 0];
+            colorBuffer[idx][0] += cr * weight;
+            colorBuffer[idx][1] += cg * weight;
+            colorBuffer[idx][2] += cb * weight;
+          }
+        }
+      }
+    }
+
+    const smoothed = new Float32Array(WIDTH * HEIGHT);
+    for (let y = 0; y < HEIGHT; y++) {
+      for (let x = 0; x < WIDTH; x++) {
+        const idx = y * WIDTH + x;
+        const baseBrightness =
+          totalWeight[idx] > 0 ? brightnessBuffer[idx] / totalWeight[idx] : 0;
+        let total = baseBrightness * 2;
+        let count = baseBrightness > 0 ? 2 : 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || nx >= WIDTH || ny < 0 || ny >= HEIGHT) continue;
+            const neighborIdx = ny * WIDTH + nx;
+            const nVal =
+              totalWeight[neighborIdx] > 0
+                ? brightnessBuffer[neighborIdx] / totalWeight[neighborIdx]
+                : 0;
+            if (nVal > 0) {
+              total += nVal;
+              count += 1;
+            }
+          }
+        }
+        if (count > 0) {
+          smoothed[y * WIDTH + x] = total / count;
+        }
+      }
+    }
+
+    const lines = [];
+    for (let y = 0; y < HEIGHT; y++) {
+      const line = [];
+      for (let x = 0; x < WIDTH; x++) {
+        const idx = y * WIDTH + x;
+        const b = smoothed[idx];
+        const shadeIndex = Math.min(
+          SHADES.length - 1,
+          Math.floor((1 - b) * (SHADES.length - 1))
+        );
+        const char = SHADES[shadeIndex];
+        const color =
+          colorBuffer[idx] && totalWeight[idx] > 0
+            ? rgbToCss(
+                colorBuffer[idx].map((c) => c / totalWeight[idx])
+              )
+            : "#e0e0e0";
+        line.push({ char, color });
+      }
+      lines.push(line);
+    }
+
+    return lines;
+  }, [modelKey, t]);
+
+  return (
+    <main
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "1rem",
+        background: "#0b1021",
+        color: "#e0e0e0",
+        fontFamily: "monospace",
+      }}
+    >
+      <h1 style={{ fontSize: "1.5rem", margin: 0 }}>ASCII Renderer</h1>
+      <label style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+        <span>Model:</span>
+        <select
+          value={modelKey}
+          onChange={(e) => setModelKey(e.target.value)}
+          style={{
+            padding: "0.25rem 0.5rem",
+            background: "#11162d",
+            color: "#e0e0e0",
+            border: "1px solid #243154",
+          }}
+        >
+          {MODELS.map((model) => (
+            <option key={model.key} value={model.key}>
+              {model.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <pre
+        style={{
+          margin: 0,
+          padding: "1rem",
+          lineHeight: 1,
+          background: "#0f1430",
+          border: "1px solid #1d2950",
+          boxShadow: "0 10px 30px rgba(0, 0, 0, 0.4)",
+        }}
+        aria-label="ASCII rendering"
+      >
+        {ascii.map((row, y) => (
+          <span key={y}>
+            {row.map(({ char, color }, x) => (
+              <span key={`${y}-${x}`} style={{ color }}>
+                {char === " " ? " " : char}
+              </span>
+            ))}
+            {"\n"}
+          </span>
+        ))}
+      </pre>
+    </main>
+  );
+}
+
+function rotatePoint(p, ax, ay) {
+  return rotateY(rotateX(p, ax), ay);
+}
+
+function rotateNormal(n, ax, ay) {
+  return normalize(rotatePoint(n, ax, ay));
+}
 
 function rotateX([x, y, z], angle) {
   const c = Math.cos(angle);
@@ -54,67 +309,7 @@ function rotateY([x, y, z], angle) {
   return [x * c + z * s, y, -x * s + z * c];
 }
 
-function rotateInverse(v, ax, ay) {
-  return rotate(v, -ax, -ay);
-}
-
-function rotatePoint(p, ax, ay) {
-  return rotateY(rotateX(p, ax), ay);
-}
-
-function sphereSDF([x, y, z], r = 1) {
-  return Math.hypot(x, y, z) - r;
-}
-
-function torusSDF([x, y, z], R = 1, r = 0.3) {
-  const qx = Math.hypot(x, z) - R;
-  return Math.hypot(qx, y) - r;
-}
-
-function getNormal(p, sdf) {
-  const e = 0.002;
-  const dx = cubeSDF([p[0] + e, p[1], p[2]]) - cubeSDF([p[0] - e, p[1], p[2]]);
-  const dy = cubeSDF([p[0], p[1] + e, p[2]]) - cubeSDF([p[0], p[1] - e, p[2]]);
-  const dz = cubeSDF([p[0], p[1], p[2] + e]) - cubeSDF([p[0], p[1], p[2] - e]);
-  const len = Math.hypot(dx, dy, dz) || 1;
-  return [dx / len, dy / len, dz / len];
-}
-
-export default function Page() {
-  const [t, setT] = useState(0);
-  const [modelKey, setModelKey] = useState(MODELS[0].key);
-
-      const nx = cosI * cosJ;
-      const ny = cosI * sinJ;
-      const nz = sinI;
-
-  useEffect(() => {
-    let id;
-    const loop = ts => {
-      setT(ts/1000);
-      id = requestAnimationFrame(loop);
-    };
-    requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(id);
-  }, []);
-
-  const ascii = useMemo(() => {
-    const model = MODELS.find(m => m.key === modelKey) ?? MODELS[0];
-    const sdf = model.sdf;
-
-    const result = [];
-
-    const cam = [0,0,-3.5];
-    const light = [0.6,1.0,-0.4];
-    {
-      const L = Math.hypot(...light);
-      light[0]/=L; light[1]/=L; light[2]/=L;
-    }
-  }
-  return points;
-}
-
-function makeSphere(radius = 1.6, stepLat = 0.22, stepLon = 0.22) {
+function makeSphere(radius = 1.6, stepLat = 0.15, stepLon = 0.15) {
   const points = [];
   for (let j = 0; j <= Math.PI; j += stepLat) {
     const sinJ = Math.sin(j);
@@ -132,19 +327,19 @@ function makeSphere(radius = 1.6, stepLat = 0.22, stepLon = 0.22) {
   return points;
 }
 
-function makeCube(size = 1.5, step = 0.18) {
+function makeCube(size = 1.5, step = 0.12, scale = [1, 1, 1]) {
   const points = [];
   const half = size;
   const ranges = [];
   for (let t = -half; t <= half; t += step) ranges.push(t);
 
   const faces = [
-    { n: [1, 0, 0], p: (u, v) => [half, u, v] },
-    { n: [-1, 0, 0], p: (u, v) => [-half, u, v] },
-    { n: [0, 1, 0], p: (u, v) => [u, half, v] },
-    { n: [0, -1, 0], p: (u, v) => [u, -half, v] },
-    { n: [0, 0, 1], p: (u, v) => [u, v, half] },
-    { n: [0, 0, -1], p: (u, v) => [u, v, -half] },
+    { n: [1, 0, 0], p: (u, v) => [half * scale[0], u * scale[1], v * scale[2]] },
+    { n: [-1, 0, 0], p: (u, v) => [-half * scale[0], u * scale[1], v * scale[2]] },
+    { n: [0, 1, 0], p: (u, v) => [u * scale[0], half * scale[1], v * scale[2]] },
+    { n: [0, -1, 0], p: (u, v) => [u * scale[0], -half * scale[1], v * scale[2]] },
+    { n: [0, 0, 1], p: (u, v) => [u * scale[0], v * scale[1], half * scale[2]] },
+    { n: [0, 0, -1], p: (u, v) => [u * scale[0], v * scale[1], -half * scale[2]] },
   ];
 
   for (const { n, p } of faces) {
@@ -158,76 +353,22 @@ function makeCube(size = 1.5, step = 0.18) {
   return points;
 }
 
-        const aspect = W/H;
-        const asciiAspect = 0.5;
+function makeTorus(R = 1.3, r = 0.4, stepMajor = 0.18, stepMinor = 0.18) {
+  const points = [];
+  for (let a = 0; a < Math.PI * 2; a += stepMajor) {
+    const cosA = Math.cos(a);
+    const sinA = Math.sin(a);
+    for (let b = 0; b < Math.PI * 2; b += stepMinor) {
+      const cosB = Math.cos(b);
+      const sinB = Math.sin(b);
 
-        // Centered projection with corrected ASCII pixel aspect ratio
-        let dir = [
-          screenX * aspect,
-          -screenY * asciiAspect,
-          1
-        ];
+      const x = (R + r * cosB) * cosA;
+      const y = r * sinB;
+      const z = (R + r * cosB) * sinA;
 
-  for (const { p, n } of model.points) {
-    const rotatedP = rotatePoint(p, ax, ay);
-    const rotatedN = rotateNormal(n, ax, ay);
-
-    const xProj = rotatedP[0] * invZ;
-    const yProj = rotatedP[1] * invZ;
-
-    const screenX = Math.floor(WIDTH / 2 + xProj * WIDTH * 0.6);
-    const screenY = Math.floor(HEIGHT / 2 - yProj * HEIGHT * 0.6);
-
-          const pObj = rotateInverse(p, ax, ay);
-
-          const d = cubeSDF(pObj);
-
-          if (d < 0.01) {
-            const nObj = getNormal(pObj);
-            const nWorld = rotate(nObj, ax, ay);
-            const diffuse = Math.max(0, nWorld[0]*light[0] + nWorld[1]*light[1] + nWorld[2]*light[2]);
-            const idx = Math.floor(diffuse * (SHADES.length-1));
-            pixel = SHADES[idx];
-            break;
-          }
-
-    depth[idx] = invZ;
-
-    const brightness = Math.max(0, rotatedN[0] * LIGHT_DIR[0] + rotatedN[1] * LIGHT_DIR[1] + rotatedN[2] * LIGHT_DIR[2]);
-    const shadeIndex = Math.floor(brightness * (SHADES.length - 1));
-    buffer[idx] = SHADES[shadeIndex];
+      const n = normalize([cosA * cosB, sinB, sinA * cosB]);
+      points.push({ p: [x, y, z], n });
+    }
   }
-
-  let out = "";
-  for (let y = 0; y < HEIGHT; y++) {
-    out += buffer.slice(y * WIDTH, (y + 1) * WIDTH).join("") + "\n";
-  }
-  return out;
-}
-
-    return result.join("\n");
-  }, [t]);
-
-  return (
-    <div style={{
-      minHeight: "100vh",
-      background: "#020408",
-      display: "flex",
-      justifyContent: "center",
-      alignItems: "center",
-      color: "#cfffff",
-      fontFamily: "monospace"
-    }}>
-    <div>
-    <pre style={{
-      fontSize: "10px",
-      lineHeight: "10px",
-      padding: "1.5rem",
-      borderRadius: "12px",
-      background: "#02040a",
-      textShadow:"0 0 6px rgba(120,200,255,0.7)"
-    }}>{ascii}</pre>
-    </div>
-    </div>
-  );
+  return points;
 }
