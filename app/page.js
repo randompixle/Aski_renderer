@@ -33,10 +33,16 @@ function rotate(v, ax, ay) {
   let x1 = x * Math.cos(ay) - z * Math.sin(ay);
   let z1 = x * Math.sin(ay) + z * Math.cos(ay);
 
-  let y1 = y * Math.cos(ax) - z1 * Math.sin(ax);
-  let z2 = y * Math.sin(ax) + z1 * Math.cos(ax);
+function rotateX([x, y, z], angle) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  return [x, y * c - z * s, y * s + z * c];
+}
 
-  return [x1, y1, z2];
+function rotateY([x, y, z], angle) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  return [x * c + z * s, y, -x * s + z * c];
 }
 
 function rotateInverse(v, ax, ay) {
@@ -73,8 +79,9 @@ export default function Page() {
   const [t, setT] = useState(0);
   const [modelKey, setModelKey] = useState(MODELS[0].key);
 
-  const W = 110;
-  const H = 55;
+      const nx = cosI * cosJ;
+      const ny = cosI * sinJ;
+      const nz = sinI;
 
   useEffect(() => {
     let id;
@@ -98,16 +105,53 @@ export default function Page() {
       const L = Math.hypot(...light);
       light[0]/=L; light[1]/=L; light[2]/=L;
     }
+  }
+  return points;
+}
 
-    const ax = t*0.7;
-    const ay = t*0.9;
+function makeSphere(radius = 1.6, stepLat = 0.22, stepLon = 0.22) {
+  const points = [];
+  for (let j = 0; j <= Math.PI; j += stepLat) {
+    const sinJ = Math.sin(j);
+    const cosJ = Math.cos(j);
+    for (let i = 0; i < Math.PI * 2; i += stepLon) {
+      const sinI = Math.sin(i);
+      const cosI = Math.cos(i);
+      const x = radius * sinJ * cosI;
+      const y = radius * sinJ * sinI;
+      const z = radius * cosJ;
+      const n = normalize([sinJ * cosI, sinJ * sinI, cosJ]);
+      points.push({ p: [x, y, z], n });
+    }
+  }
+  return points;
+}
 
-    for (let y=0; y<H; y++) {
-      let row = "";
+function makeCube(size = 1.5, step = 0.18) {
+  const points = [];
+  const half = size;
+  const ranges = [];
+  for (let t = -half; t <= half; t += step) ranges.push(t);
 
-      for (let x=0; x<W; x++) {
-        const screenX = ((x+0.5)/W)*2 - 1;
-        const screenY = ((y+0.5)/H)*2 - 1;
+  const faces = [
+    { n: [1, 0, 0], p: (u, v) => [half, u, v] },
+    { n: [-1, 0, 0], p: (u, v) => [-half, u, v] },
+    { n: [0, 1, 0], p: (u, v) => [u, half, v] },
+    { n: [0, -1, 0], p: (u, v) => [u, -half, v] },
+    { n: [0, 0, 1], p: (u, v) => [u, v, half] },
+    { n: [0, 0, -1], p: (u, v) => [u, v, -half] },
+  ];
+
+  for (const { n, p } of faces) {
+    for (const u of ranges) {
+      for (const v of ranges) {
+        points.push({ p: p(u, v), n });
+      }
+    }
+  }
+
+  return points;
+}
 
         const aspect = W/H;
         const asciiAspect = 0.5;
@@ -119,18 +163,15 @@ export default function Page() {
           1
         ];
 
-        const len = Math.hypot(...dir);
-        dir = [dir[0]/len, dir[1]/len, dir[2]/len];
+  for (const { p, n } of model.points) {
+    const rotatedP = rotatePoint(p, ax, ay);
+    const rotatedN = rotateNormal(n, ax, ay);
 
         let dist = 0;
         let pixel = " ";
 
-        for (let i=0; i<80; i++) {
-          const p = [
-            cam[0] + dir[0]*dist,
-            cam[1] + dir[1]*dist,
-            cam[2] + dir[2]*dist,
-          ];
+    const screenX = Math.floor(WIDTH / 2 + xProj * WIDTH * 0.6);
+    const screenY = Math.floor(HEIGHT / 2 - yProj * HEIGHT * 0.6);
 
           const pObj = rotateInverse(p, ax, ay);
 
@@ -145,15 +186,19 @@ export default function Page() {
             break;
           }
 
-          dist += d * 0.5;
-          if (dist > 10) break;
-        }
+    depth[idx] = invZ;
 
-        row += pixel;
-      }
+    const brightness = Math.max(0, rotatedN[0] * LIGHT_DIR[0] + rotatedN[1] * LIGHT_DIR[1] + rotatedN[2] * LIGHT_DIR[2]);
+    const shadeIndex = Math.floor(brightness * (SHADES.length - 1));
+    buffer[idx] = SHADES[shadeIndex];
+  }
 
-      result.push(row);
-    }
+  let out = "";
+  for (let y = 0; y < HEIGHT; y++) {
+    out += buffer.slice(y * WIDTH, (y + 1) * WIDTH).join("") + "\n";
+  }
+  return out;
+}
 
     return result.join("\n");
   }, [t]);
